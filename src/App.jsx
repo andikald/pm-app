@@ -511,6 +511,11 @@ function ProjectsTab({projects,setProjects,engineers,selProject,setSelProject,pr
   const [editProjectId, setEditProjectId] = useState(null);
   const [showReportForm, setShowReportForm] = useState(false);
   const [showDocForm, setShowDocForm] = useState(false);
+  // WBS state
+  const [showWbsForm, setShowWbsForm] = useState(false);
+  const [editWbsId, setEditWbsId] = useState(null);
+  const [wbsForm, setWbsForm] = useState({phase:"Planning",code:"",name:"",description:"",assignee:"",startDate:"",endDate:"",weight:10,status:"pending"});
+  const WBS_STATUSES = ["pending","in_progress","done","blocked"];
   const [milestoneForm, setMilestoneForm] = useState({name:"",date:"",planProgress:0,actualProgress:0,engineers:[],description:"",activities:[]});
   const [activityForm, setActivityForm] = useState({name:"",targetDate:"",actualDate:"",planPct:0,actualPct:0,assignee:"",status:"pending"});
   const [reportForm, setReportForm] = useState({date:T,summary:"",activities:"",issues:"",nextPlan:"",reporter:""});
@@ -592,6 +597,31 @@ function ProjectsTab({projects,setProjects,engineers,selProject,setSelProject,pr
     showToast("Dokumen dihapus","#ef4444");
   };
 
+  const saveWbs = () => {
+    if(!wbsForm.name||!wbsForm.phase) return;
+    if(editWbsId) {
+      setProjects(projects.map(p=>p.id===selProject?{...p,wbs:(p.wbs||[]).map(w=>w.id===editWbsId?{...wbsForm,id:editWbsId}:w)}:p));
+      setEditWbsId(null);
+    } else {
+      const w={...wbsForm,id:uid()};
+      setProjects(projects.map(p=>p.id===selProject?{...p,wbs:[...(p.wbs||[]),w]}:p));
+    }
+    setWbsForm({phase:"Planning",code:"",name:"",description:"",assignee:"",startDate:"",endDate:"",weight:10,status:"pending"});
+    setShowWbsForm(false);
+    showToast(editWbsId?"✓ WBS diperbarui":"✓ WBS ditambahkan");
+  };
+
+  const deleteWbs = (projId,wid) => {
+    setProjects(projects.map(p=>p.id===projId?{...p,wbs:(p.wbs||[]).filter(w=>w.id!==wid)}:p));
+    showToast("WBS dihapus","#ef4444");
+  };
+
+  const startEditWbs = (w) => {
+    setWbsForm({...w});
+    setEditWbsId(w.id);
+    setShowWbsForm(true);
+  };
+
   const moveToCompleted = (proj) => {
     if(!window.confirm("Tandai proyek ini sebagai Completed?")) return;
     const cp = {...proj,phase:"Completed",status:"Completed",projectStatus:"completed",completedDate:T,afterSalesNotes:"",warrantyEnd:addDays(T,365)};
@@ -613,6 +643,7 @@ function ProjectsTab({projects,setProjects,engineers,selProject,setSelProject,pr
 
     const PROJ_TABS = [
       {id:"overview",label:"Overview"},
+      {id:"wbs",label:"WBS"},
       {id:"milestones",label:"Milestones"},
       {id:"reports",label:"Laporan Harian"},
       {id:"documents",label:"Dokumen"},
@@ -747,6 +778,152 @@ function ProjectsTab({projects,setProjects,engineers,selProject,setSelProject,pr
             </div>
           </div>
         )}
+
+        {/* WBS */}
+        {projTab==="wbs"&&(()=>{
+          const wbsItems=selProj.wbs||[];
+          const wbsStatusColor={"pending":"#64748b","in_progress":"#f59e0b","done":"#10b981","blocked":"#ef4444"};
+          const wbsStatusLabel={"pending":"Pending","in_progress":"In Progress","done":"Done","blocked":"Blocked"};
+          const phaseGroups=[...new Set([...PHASES,...wbsItems.map(w=>w.phase)])].filter(ph=>ph);
+          const totalWeight=wbsItems.reduce((a,w)=>a+Number(w.weight||0),0);
+          const doneWeight=wbsItems.filter(w=>w.status==="done").reduce((a,w)=>a+Number(w.weight||0),0);
+          const overallPct=totalWeight>0?Math.round(doneWeight/totalWeight*100):0;
+          return (
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+                <div>
+                  <div style={{fontSize:10,color:"#38bdf8",letterSpacing:2}}>WORK BREAKDOWN STRUCTURE</div>
+                  <div style={{fontSize:9,color:"#64748b",marginTop:2}}>Overall completion: <span style={{color:"#10b981",fontWeight:700}}>{overallPct}%</span> ({wbsItems.filter(w=>w.status==="done").length}/{wbsItems.length} items)</div>
+                </div>
+                {canEdit&&<button onClick={()=>{setWbsForm({phase:selProj.phase||"Planning",code:"",name:"",description:"",assignee:"",startDate:"",endDate:"",weight:10,status:"pending"});setEditWbsId(null);setShowWbsForm(true);}} style={{...btn("#cc0000")}}>+ Tambah WBS</button>}
+              </div>
+
+              {/* Overall progress */}
+              <div style={{...card,marginBottom:14,padding:"12px 16px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#64748b",marginBottom:6}}>
+                  <span>Overall WBS Progress</span><span style={{color:"#10b981",fontWeight:700}}>{overallPct}%</span>
+                </div>
+                <ProgressBar value={overallPct} color="#10b981" h={10}/>
+                <div style={{display:"flex",gap:10,marginTop:10,flexWrap:"wrap"}}>
+                  {Object.entries(wbsStatusLabel).map(([k,v])=>{
+                    const cnt=wbsItems.filter(w=>w.status===k).length;
+                    return cnt>0?<span key={k} style={{fontSize:9,padding:"2px 8px",borderRadius:99,background:wbsStatusColor[k]+"22",color:wbsStatusColor[k],border:`1px solid ${wbsStatusColor[k]}44`,fontWeight:700}}>{v}: {cnt}</span>:null;
+                  })}
+                </div>
+              </div>
+
+              {/* Add/Edit WBS form */}
+              {showWbsForm&&canEdit&&(
+                <div style={{...card,marginBottom:14,border:"1px solid #cc000044"}}>
+                  <div style={{fontSize:10,color:"#cc0000",letterSpacing:2,marginBottom:12}}>▸ {editWbsId?"EDIT WBS":"WBS BARU"}</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                    <div>
+                      <div style={{fontSize:9,color:"#64748b",marginBottom:3}}>PHASE *</div>
+                      <select style={inp} value={wbsForm.phase} onChange={e=>setWbsForm({...wbsForm,phase:e.target.value})}>
+                        {PHASES.map(ph=><option key={ph}>{ph}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,color:"#64748b",marginBottom:3}}>KODE WBS</div>
+                      <input style={inp} value={wbsForm.code} onChange={e=>setWbsForm({...wbsForm,code:e.target.value})} placeholder="Misal: 1.1, 2.3.1"/>
+                    </div>
+                    <div style={{gridColumn:"1/-1"}}>
+                      <div style={{fontSize:9,color:"#64748b",marginBottom:3}}>NAMA PEKERJAAN *</div>
+                      <input style={inp} value={wbsForm.name} onChange={e=>setWbsForm({...wbsForm,name:e.target.value})} placeholder="Deskripsi singkat pekerjaan..."/>
+                    </div>
+                    <div style={{gridColumn:"1/-1"}}>
+                      <div style={{fontSize:9,color:"#64748b",marginBottom:3}}>KETERANGAN</div>
+                      <textarea style={{...inp,minHeight:50,resize:"vertical"}} value={wbsForm.description} onChange={e=>setWbsForm({...wbsForm,description:e.target.value})} placeholder="Detail pekerjaan..."/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,color:"#64748b",marginBottom:3}}>ASSIGNEE</div>
+                      <input style={inp} value={wbsForm.assignee} onChange={e=>setWbsForm({...wbsForm,assignee:e.target.value})} placeholder="Nama penanggung jawab"/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,color:"#64748b",marginBottom:3}}>STATUS</div>
+                      <select style={inp} value={wbsForm.status} onChange={e=>setWbsForm({...wbsForm,status:e.target.value})}>
+                        {WBS_STATUSES.map(s=><option key={s} value={s}>{wbsStatusLabel[s]}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,color:"#64748b",marginBottom:3}}>TARGET MULAI</div>
+                      <input type="date" style={inp} value={wbsForm.startDate} onChange={e=>setWbsForm({...wbsForm,startDate:e.target.value})}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,color:"#64748b",marginBottom:3}}>TARGET SELESAI</div>
+                      <input type="date" style={inp} value={wbsForm.endDate} onChange={e=>setWbsForm({...wbsForm,endDate:e.target.value})}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,color:"#64748b",marginBottom:3}}>BOBOT (%)</div>
+                      <input type="number" min="1" max="100" style={inp} value={wbsForm.weight} onChange={e=>setWbsForm({...wbsForm,weight:Number(e.target.value)||0})} placeholder="Bobot pekerjaan"/>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={saveWbs} style={{...btn("#10b981")}}>{editWbsId?"UPDATE WBS":"SIMPAN WBS"}</button>
+                    <button onClick={()=>{setShowWbsForm(false);setEditWbsId(null);}} style={{background:"transparent",border:"1px solid #1e3a5f",color:"#64748b",borderRadius:8,padding:"7px 14px",fontSize:11,fontFamily:"inherit",cursor:"pointer"}}>BATAL</button>
+                  </div>
+                </div>
+              )}
+
+              {/* WBS grouped by phase */}
+              {wbsItems.length===0&&!showWbsForm&&<div style={{...card,textAlign:"center",color:"#334155",padding:40}}>Belum ada WBS. Tambahkan item pekerjaan per phase.</div>}
+              {phaseGroups.filter(ph=>wbsItems.some(w=>w.phase===ph)).map(ph=>{
+                const phItems=wbsItems.filter(w=>w.phase===ph);
+                const phDone=phItems.filter(w=>w.status==="done").length;
+                const phPct=phItems.length?Math.round(phDone/phItems.length*100):0;
+                const pc=phaseColor[ph]||"#64748b";
+                return (
+                  <div key={ph} style={{marginBottom:18}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                      <div style={{fontSize:10,fontWeight:700,color:pc,letterSpacing:2,padding:"3px 10px",background:pc+"22",borderRadius:20,border:`1px solid ${pc}44`}}>⬡ {ph.toUpperCase()}</div>
+                      <div style={{flex:1}}><ProgressBar value={phPct} color={pc} h={5}/></div>
+                      <span style={{fontSize:10,color:pc,fontWeight:700,minWidth:36}}>{phPct}%</span>
+                      <span style={{fontSize:9,color:"#475569"}}>{phDone}/{phItems.length}</span>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                      {phItems.map(w=>{
+                        const sc=wbsStatusColor[w.status];
+                        return (
+                          <div key={w.id} style={{background:"#0f274480",border:`1px solid ${sc}33`,borderRadius:10,padding:"12px 14px"}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                              <div style={{flex:1}}>
+                                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                                  {w.code&&<span style={{fontSize:9,color:"#64748b",background:"#0f274460",borderRadius:4,padding:"1px 6px",fontFamily:"monospace"}}>{w.code}</span>}
+                                  <span style={{fontSize:12,color:"#e2e8f0",fontWeight:700}}>{w.name}</span>
+                                </div>
+                                {w.description&&<div style={{fontSize:10,color:"#64748b",marginBottom:4,lineHeight:1.5}}>{w.description}</div>}
+                                <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                                  {w.assignee&&<span style={{fontSize:9,color:"#a78bfa"}}>👤 {w.assignee}</span>}
+                                  {w.startDate&&<span style={{fontSize:9,color:"#475569"}}>▶ {fmtDate(w.startDate)}</span>}
+                                  {w.endDate&&<span style={{fontSize:9,color:"#475569"}}>⏹ {fmtDate(w.endDate)}</span>}
+                                  {w.weight>0&&<span style={{fontSize:9,color:"#38bdf8"}}>⚖ {w.weight}%</span>}
+                                </div>
+                              </div>
+                              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}>
+                                <span style={{fontSize:9,padding:"2px 8px",borderRadius:99,background:sc+"22",color:sc,border:`1px solid ${sc}44`,fontWeight:700,whiteSpace:"nowrap"}}>{wbsStatusLabel[w.status]}</span>
+                                {canEdit&&(
+                                  <div style={{display:"flex",gap:4}}>
+                                    <select style={{...inp,fontSize:9,padding:"2px 6px",width:"auto"}} value={w.status} onChange={e=>{
+                                      setProjects(projects.map(p=>p.id===selProj.id?{...p,wbs:(p.wbs||[]).map(ww=>ww.id===w.id?{...ww,status:e.target.value}:ww)}:p));
+                                    }}>
+                                      {WBS_STATUSES.map(s=><option key={s} value={s}>{wbsStatusLabel[s]}</option>)}
+                                    </select>
+                                    <button onClick={()=>startEditWbs(w)} style={{background:"#38bdf822",border:"1px solid #38bdf8",color:"#38bdf8",borderRadius:6,padding:"2px 8px",fontSize:9,cursor:"pointer"}}>✏</button>
+                                    <button onClick={()=>deleteWbs(selProj.id,w.id)} style={{background:"transparent",border:"1px solid #ef444444",color:"#ef4444",borderRadius:6,padding:"2px 8px",fontSize:9,cursor:"pointer"}}>✕</button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* MILESTONES */}
         {projTab==="milestones"&&(
@@ -1162,7 +1339,7 @@ function ManpowerTab({engineers,setEngineers,filteredEngineers,mpFilter,setMpFil
         <div style={{...card,marginBottom:14,border:"1px solid #cc000044"}}>
           <div style={{fontSize:11,color:"#cc0000",letterSpacing:2,marginBottom:12}}>▸ MANPOWER BARU</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-            {[["NAMA *","text","name"],["ROLE *","text","role"],["DEPARTMENT","text","dept"],["PHONE","text","phone"],["EMAIL","email","email"]].map(([lbl,type,key])=>(
+            {[["NAMA *","text","name"],["ROLE *","text","role"],["DEPARTMENT","text","dept"],["PHONE / WA","text","phone"],["EMAIL","email","email"]].map(([lbl,type,key])=>(
               <div key={key}>
                 <div style={{fontSize:9,color:"#64748b",marginBottom:3}}>{lbl}</div>
                 <input type={type} style={inp} value={newEng[key]||""} onChange={e=>setNewEng({...newEng,[key]:e.target.value})}/>
@@ -1193,11 +1370,18 @@ function ManpowerTab({engineers,setEngineers,filteredEngineers,mpFilter,setMpFil
                   {isEditing?(
                     <div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                        {[["NAMA","name"],["ROLE","role"],["DEPT","dept"],["PHONE","phone"],["EMAIL","email"]].map(([lbl,key])=>(
+                        {[["NAMA","name"],["ROLE","role"],["DEPT","dept"],["PHONE / WA","phone"],["EMAIL","email"]].map(([lbl,key])=>(
                           <div key={key}><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>{lbl}</div><input style={{...inp,fontSize:11,padding:"5px 8px"}} value={editData[key]??e[key]??""} onChange={ev=>setEditData({...editData,[key]:ev.target.value})}/></div>
                         ))}
                         <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>STATUS</div><select style={{...inp,fontSize:11,padding:"5px 8px"}} value={editData.status??e.status} onChange={ev=>setEditData({...editData,status:ev.target.value})}><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
                       </div>
+                      {(editData.phone||e.phone)&&(()=>{
+                        const ph=((editData.phone??e.phone)||"").replace(/[^0-9]/g,"").replace(/^0/,"62");
+                        return ph?<div style={{marginBottom:8}}><a href={`https://wa.me/${ph}`} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:5,background:"#25D36622",border:"1px solid #25D36644",color:"#25D366",borderRadius:20,padding:"3px 10px",fontSize:9,fontWeight:700,textDecoration:"none"}}>
+                          <svg viewBox="0 0 24 24" width="11" height="11" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.126.554 4.122 1.522 5.853L.057 23.886a.5.5 0 0 0 .606.617l6.204-1.625A11.95 11.95 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.96 0-3.795-.527-5.373-1.444l-.385-.224-3.99 1.045 1.063-3.88-.247-.396A9.956 9.956 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg>
+                          Preview WA Chat
+                        </a></div>:null;
+                      })()}
                       <div style={{display:"flex",gap:6}}>
                         <button onClick={saveEdit} style={{...btn("#10b981"),padding:"5px 12px",fontSize:10}}>Simpan</button>
                         <button onClick={()=>setEditId(null)} style={{background:"transparent",border:"1px solid #1e3a5f",color:"#64748b",borderRadius:6,padding:"4px 10px",fontSize:10,cursor:"pointer"}}>Batal</button>
@@ -1213,7 +1397,7 @@ function ManpowerTab({engineers,setEngineers,filteredEngineers,mpFilter,setMpFil
                             <div style={{fontSize:9,color:"#475569"}}>{e.role}</div>
                           </div>
                         </div>
-                        <div style={{display:"flex",gap:4}}>
+                        <div style={{display:"flex",gap:4,alignItems:"flex-start"}}>
                           <Badge label={e.status==="active"?"ACTIVE":"INACTIVE"} color={e.status==="active"?"#10b981":"#6b7280"} small/>
                         </div>
                       </div>
@@ -1223,6 +1407,22 @@ function ManpowerTab({engineers,setEngineers,filteredEngineers,mpFilter,setMpFil
                         <span>Hours: <span style={{color:"#a78bfa",fontWeight:700}}>{e.hoursLogged}h</span></span>
                       </div>
                       <GaugeRing value={e.kpi} size={50}/>
+                      {/* WhatsApp & contact info */}
+                      {(e.phone||e.email)&&(
+                        <div style={{marginTop:8,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                          {e.phone&&(()=>{
+                            const waNum=e.phone.replace(/[^0-9]/g,"").replace(/^0/,"62");
+                            return (
+                              <a href={`https://wa.me/${waNum}`} target="_blank" rel="noopener noreferrer"
+                                style={{display:"inline-flex",alignItems:"center",gap:5,background:"#25D36622",border:"1px solid #25D36644",color:"#25D366",borderRadius:20,padding:"3px 10px",fontSize:9,fontWeight:700,textDecoration:"none",cursor:"pointer"}}>
+                                <svg viewBox="0 0 24 24" width="12" height="12" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.126.554 4.122 1.522 5.853L.057 23.886a.5.5 0 0 0 .606.617l6.204-1.625A11.95 11.95 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.96 0-3.795-.527-5.373-1.444l-.385-.224-3.99 1.045 1.063-3.88-.247-.396A9.956 9.956 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg>
+                                WA {e.phone}
+                              </a>
+                            );
+                          })()}
+                          {e.email&&<span style={{fontSize:9,color:"#64748b",background:"#0f274460",borderRadius:20,padding:"3px 8px"}}>✉ {e.email}</span>}
+                        </div>
+                      )}
                       {canEdit&&(
                         <div style={{display:"flex",gap:6,marginTop:8}}>
                           <button onClick={()=>{setEditId(e.id);setEditData({});}} style={{...btnSm("#38bdf8"),flex:1}}>✏ Edit</button>
