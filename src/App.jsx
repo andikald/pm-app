@@ -1633,7 +1633,7 @@ function ProjectsTab({projects,setProjects,engineers,selProject,setSelProject,ca
             ))}
           </div>
           <div style={{marginTop:12}}>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#64748b",marginBottom:4"}}><span>Plan {plan}%</span><span>Actual {actual}%</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#64748b",marginBottom:4}}><span>Plan {plan}%</span><span>Actual {actual}%</span></div>
             <ProgressBar value={plan} color="#3b82f666" h={5}/>
             <div style={{height:3}}/>
             <ProgressBar value={actual} color={statusColor[selProj.status]} h={10}/>
