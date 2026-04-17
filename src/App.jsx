@@ -215,7 +215,7 @@ function LoginScreen({ onLogin }) {
             </div>
           </div>
           <div style={{color:"#f0f9ff",fontSize:16,fontWeight:700,letterSpacing:2,marginBottom:4}}>PROJECT MANAGEMENT SYSTEM</div>
-          <div style={{color:"#38bdf8",fontSize:10,letterSpacing:3}}>v7.0 ENTERPRISE</div>
+          <div style={{color:"#38bdf8",fontSize:10,letterSpacing:3}}>v6.0 ENTERPRISE</div>
         </div>
         {err&&<div style={{background:"#ef444422",border:"1px solid #ef444466",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#ef4444",marginBottom:16,textAlign:"center"}}>{err}</div>}
         <div style={{marginBottom:14}}>
@@ -254,7 +254,6 @@ const NAV_GROUPS = [
     {id:"calendar",label:"Kalender Engineer",icon:"📅"},
     {id:"timesheet",label:"Timesheet",icon:"⏱"},
     {id:"workhours",label:"Input Jam Kerja",icon:"🕐"},
-    {id:"mpactivity",label:"Aktivitas Manpower",icon:"📋"},
   ]},
   { group:"OPERASIONAL", items:[
     {id:"route",label:"Route",icon:"🚐"},
@@ -491,288 +490,61 @@ function GanttTab({ projects, setProjects, card, inp, btn, btnSm, canEdit, showT
   );
 }
 
-function WBSSection({ project, projects, setProjects, card, inp, btn, btnSm, canEdit, showToast, engineers }) {
-  const WSTATUS = {pending:"#64748b",in_progress:"#f59e0b",done:"#10b981",blocked:"#ef4444"};
-  const [activePhaseWBS, setActivePhaseWBS] = useState(null);
-  const [showWBSForm, setShowWBSForm] = useState(false);
-  const [editWBSId, setEditWBSId] = useState(null);
-  const [wbsForm, setWbsForm] = useState({name:"",level:1,phase:"Planning",assignee:"",startDate:T,endDate:addDays(T,7),weight:10,status:"pending",description:""});
-  // Daily log form state
-  const [showLogForm, setShowLogForm] = useState(null); // wbsItemId
-  const [logForm, setLogForm] = useState({date:T,hours:8,description:"",reporter:"",manpowerIds:[],endDate:""});
-  const [editLogId, setEditLogId] = useState(null);
-  // S-Curve view
-  const [showSCurve, setShowSCurve] = useState(false);
-
+function WBSSection({ project, projects, setProjects, card, inp, btn, btnSm, canEdit, showToast }) {
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({name:"",level:1,parent:"",assignee:"",startDate:T,endDate:addDays(T,7),weight:10,status:"pending"});
   const wbs = project.wbsItems||[];
 
-  const saveWBS = () => {
-    if(!wbsForm.name) return;
-    const item = {...wbsForm, id: editWBSId||uid(), dailyLogs: editWBSId ? (wbs.find(w=>w.id===editWBSId)?.dailyLogs||[]) : []};
-    setProjects(projects.map(p=>p.id===project.id ? {
-      ...p, wbsItems: editWBSId ? wbs.map(w=>w.id===editWBSId?item:w) : [...wbs, item]
-    } : p));
-    setWbsForm({name:"",level:1,phase:"Planning",assignee:"",startDate:T,endDate:addDays(T,7),weight:10,status:"pending",description:""});
-    setShowWBSForm(false); setEditWBSId(null);
-    showToast(editWBSId?"✓ WBS diperbarui":"✓ WBS item ditambahkan");
+  const addWBS = () => {
+    if(!form.name) return;
+    setProjects(projects.map(p=>p.id===project.id?{...p,wbsItems:[...wbs,{...form,id:uid()}]}:p));
+    setForm({name:"",level:1,parent:"",assignee:"",startDate:T,endDate:addDays(T,7),weight:10,status:"pending"});
+    setShowForm(false);
+    showToast("✓ WBS item ditambahkan");
   };
   const deleteWBS = (id) => {
     setProjects(projects.map(p=>p.id===project.id?{...p,wbsItems:wbs.filter(w=>w.id!==id)}:p));
-    showToast("WBS item dihapus","#ef4444");
   };
-  const updateWBSField = (id,field,val) => {
+  const updateWBS = (id,field,val) => {
     setProjects(projects.map(p=>p.id===project.id?{...p,wbsItems:wbs.map(w=>w.id===id?{...w,[field]:val}:w)}:p));
   };
 
-  // Daily log operations
-  const saveLog = (wbsId) => {
-    if(!logForm.description) return;
-    const logs = wbs.find(w=>w.id===wbsId)?.dailyLogs||[];
-    // If recurring (endDate set), generate one entry per day
-    let newLogs = [];
-    if(logForm.endDate && logForm.endDate > logForm.date) {
-      let cur = logForm.date;
-      while(cur <= logForm.endDate) {
-        newLogs.push({...logForm, id:uid(), date:cur, endDate:undefined});
-        cur = addDays(cur,1);
-      }
-    } else {
-      const entry = {...logForm, id: editLogId||uid(), endDate:undefined};
-      newLogs = editLogId ? logs.map(l=>l.id===editLogId?entry:l) : [...logs, entry];
-    }
-    if(!editLogId && logForm.endDate && logForm.endDate > logForm.date) {
-      newLogs = [...logs, ...newLogs];
-    }
-    setProjects(projects.map(p=>p.id===project.id?{...p,wbsItems:wbs.map(w=>w.id===wbsId?{...w,dailyLogs:newLogs}:w)}:p));
-    setLogForm({date:T,hours:8,description:"",reporter:"",manpowerIds:[],endDate:""});
-    setShowLogForm(null); setEditLogId(null);
-    showToast("✓ Laporan harian disimpan");
-  };
-  const deleteLog = (wbsId, logId) => {
-    setProjects(projects.map(p=>p.id===project.id?{...p,wbsItems:wbs.map(w=>w.id===wbsId?{...w,dailyLogs:(w.dailyLogs||[]).filter(l=>l.id!==logId)}:w)}:p));
-  };
-
-  // S-Curve calculation from daily logs
-  const buildSCurveData = () => {
-    const allLogs = wbs.flatMap(w=>(w.dailyLogs||[]).map(l=>({...l,wbsId:w.id,wbsWeight:w.weight||0})));
-    if(allLogs.length===0) return [];
-    const dates = [...new Set(allLogs.map(l=>l.date))].sort();
-    const totalWeight = wbs.reduce((a,w)=>a+(w.weight||0),0)||100;
-    let cumPlan = 0, cumActual = 0;
-    // Plan: distribute weight evenly over WBS duration
-    const planByDate = {};
-    wbs.forEach(w=>{
-      if(!w.startDate||!w.endDate) return;
-      const start = new Date(w.startDate), end = new Date(w.endDate);
-      const days = Math.max(1,Math.round((end-start)/86400000));
-      const dailyWeight = (w.weight||0)/days;
-      let cur = w.startDate;
-      while(cur <= w.endDate) {
-        planByDate[cur] = (planByDate[cur]||0)+dailyWeight;
-        cur = addDays(cur,1);
-      }
-    });
-    const allDatesUnion = [...new Set([...Object.keys(planByDate),...dates])].sort();
-    let cumP=0,cumA=0;
-    return allDatesUnion.map(date=>{
-      cumP = Math.min(100, cumP + (planByDate[date]||0)/totalWeight*100);
-      const dayActual = allLogs.filter(l=>l.date===date).reduce((a,l)=>{
-        const w = wbs.find(x=>x.id===l.wbsId);
-        return a + (w?.status==="done" ? (w?.weight||0) : (l.hours||0)/8*(w?.weight||0)*0.3);
-      },0);
-      cumA = Math.min(100, cumA + dayActual/totalWeight*100);
-      return {date, plan:Math.round(cumP*10)/10, actual:Math.round(cumA*10)/10};
-    });
-  };
-
-  const scData = buildSCurveData();
-  const phaseGroups = {};
-  PHASES.forEach(ph=>{phaseGroups[ph]=wbs.filter(w=>(w.phase||"Planning")===ph);});
-
+  const statusC = {pending:"#64748b",in_progress:"#f59e0b",done:"#10b981",blocked:"#ef4444"};
   return (
-    <div style={{marginBottom:20}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-        <div>
-          <div style={{fontSize:12,color:"#e2e8f0",fontWeight:700}}>{project.name}</div>
-          <div style={{fontSize:9,color:"#475569"}}>{wbs.length} WBS items · {wbs.filter(w=>w.status==="done").length} selesai</div>
+    <div style={{marginBottom:16,borderLeft:"2px solid #cc000033",paddingLeft:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <div style={{fontSize:11,color:"#e2e8f0",fontWeight:700}}>{project.name}</div>
+        {canEdit&&<button onClick={()=>setShowForm(!showForm)} style={{...btnSm("#cc0000"),fontSize:9}}>+ WBS Item</button>}
+      </div>
+      {showForm&&<div style={{background:"#0f274440",borderRadius:8,padding:10,marginBottom:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+          <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>NAMA</div><input style={{...inp,fontSize:11,padding:"5px 8px"}} value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></div>
+          <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>LEVEL</div><select style={{...inp,fontSize:11,padding:"5px 8px"}} value={form.level} onChange={e=>setForm({...form,level:+e.target.value})}><option value={1}>1 - Phase</option><option value={2}>2 - Deliverable</option><option value={3}>3 - Work Package</option></select></div>
+          <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>ASSIGNEE</div><input style={{...inp,fontSize:11,padding:"5px 8px"}} value={form.assignee} onChange={e=>setForm({...form,assignee:e.target.value})}/></div>
+          <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>MULAI</div><input type="date" style={{...inp,fontSize:11,padding:"5px 8px"}} value={form.startDate} onChange={e=>setForm({...form,startDate:e.target.value})}/></div>
+          <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>SELESAI</div><input type="date" style={{...inp,fontSize:11,padding:"5px 8px"}} value={form.endDate} onChange={e=>setForm({...form,endDate:e.target.value})}/></div>
+          <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>BOBOT (%)</div><input type="number" min="0" max="100" style={{...inp,fontSize:11,padding:"5px 8px"}} value={form.weight} onChange={e=>setForm({...form,weight:+e.target.value})}/></div>
         </div>
         <div style={{display:"flex",gap:6}}>
-          {scData.length>0&&<button onClick={()=>setShowSCurve(!showSCurve)} style={{...btnSm("#8b5cf6"),fontSize:9}}>📈 S-Curve</button>}
-          {canEdit&&<button onClick={()=>{setShowWBSForm(!showWBSForm);setEditWBSId(null);setWbsForm({name:"",level:1,phase:"Planning",assignee:"",startDate:T,endDate:addDays(T,7),weight:10,status:"pending",description:""});}} style={{...btnSm("#cc0000"),fontSize:9}}>+ WBS Item</button>}
+          <button onClick={addWBS} style={{...btnSm("#10b981"),fontSize:10}}>Simpan</button>
+          <button onClick={()=>setShowForm(false)} style={{...btnSm("#64748b"),fontSize:10}}>Batal</button>
         </div>
-      </div>
-
-      {/* S-Curve Chart */}
-      {showSCurve&&scData.length>0&&(
-        <div style={{background:"#0f274460",borderRadius:10,padding:14,marginBottom:12}}>
-          <div style={{fontSize:10,color:"#8b5cf6",letterSpacing:2,marginBottom:8}}>▸ S-CURVE PROGRESS ({project.name})</div>
-          <div style={{position:"relative",height:140,overflowX:"auto"}}>
-            <svg viewBox={`0 0 ${Math.max(600,scData.length*20)} 130`} style={{width:"100%",minWidth:400,height:130}}>
-              <defs>
-                <linearGradient id={`planGrad${project.id}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.3"/>
-                  <stop offset="100%" stopColor="#3b82f6" stopOpacity="0"/>
-                </linearGradient>
-                <linearGradient id={`actGrad${project.id}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity="0.3"/>
-                  <stop offset="100%" stopColor="#10b981" stopOpacity="0"/>
-                </linearGradient>
-              </defs>
-              {/* Grid */}
-              {[0,25,50,75,100].map(v=>(
-                <g key={v}>
-                  <line x1="40" y1={110-v} x2={Math.max(600,scData.length*20)} y2={110-v} stroke="#1e3a5f" strokeWidth="0.5"/>
-                  <text x="35" y={113-v} textAnchor="end" fill="#475569" fontSize="8">{v}%</text>
-                </g>
-              ))}
-              {/* Plan curve */}
-              {scData.length>1&&(
-                <polyline points={scData.map((d,i)=>`${40+i*(Math.max(560,scData.length*20-40)/(scData.length-1))},${110-d.plan}`).join(" ")} fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeDasharray="4"/>
-              )}
-              {/* Actual curve */}
-              {scData.length>1&&(
-                <polyline points={scData.map((d,i)=>`${40+i*(Math.max(560,scData.length*20-40)/(scData.length-1))},${110-d.actual}`).join(" ")} fill="none" stroke="#10b981" strokeWidth="2"/>
-              )}
-              {/* Date labels - show every N */}
-              {scData.filter((_,i)=>i%Math.ceil(scData.length/8)===0).map((d,i,arr)=>{
-                const idx = scData.indexOf(d);
-                const x = 40+idx*(Math.max(560,scData.length*20-40)/(scData.length-1));
-                return <text key={d.date} x={x} y={125} textAnchor="middle" fill="#334155" fontSize="7">{d.date.slice(5)}</text>;
-              })}
-            </svg>
+      </div>}
+      {wbs.length===0&&<div style={{fontSize:10,color:"#334155",fontStyle:"italic"}}>Belum ada WBS item</div>}
+      {wbs.map(w=>(
+        <div key={w.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"#0f274440",borderRadius:6,marginBottom:4,marginLeft:(w.level-1)*16}}>
+          <div style={{fontSize:8,color:"#475569",minWidth:16}}>{w.level}.x</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:10,color:"#e2e8f0"}}>{w.name}</div>
+            <div style={{fontSize:8,color:"#475569"}}>{w.assignee&&`${w.assignee} · `}{fmtDate(w.startDate)} → {fmtDate(w.endDate)} · Bobot {w.weight}%</div>
           </div>
-          <div style={{display:"flex",gap:16,marginTop:6}}>
-            <div style={{display:"flex",alignItems:"center",gap:5,fontSize:9,color:"#3b82f6"}}><div style={{width:20,height:2,background:"#3b82f6",borderTop:"2px dashed #3b82f6"}}/> Plan: {scData[scData.length-1]?.plan||0}%</div>
-            <div style={{display:"flex",alignItems:"center",gap:5,fontSize:9,color:"#10b981"}}><div style={{width:20,height:2,background:"#10b981"}}/> Actual: {scData[scData.length-1]?.actual||0}%</div>
-          </div>
+          {canEdit&&<select style={{...inp,width:"auto",fontSize:9,padding:"2px 5px"}} value={w.status} onChange={e=>updateWBS(w.id,"status",e.target.value)}>
+            <option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+          </select>}
+          <div style={{width:6,height:6,borderRadius:"50%",background:statusC[w.status]||"#64748b",flexShrink:0}}/>
+          {canEdit&&<button onClick={()=>deleteWBS(w.id)} style={{background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:12}}>✕</button>}
         </div>
-      )}
-
-      {/* WBS Form */}
-      {showWBSForm&&canEdit&&(
-        <div style={{background:"#0f274440",borderRadius:10,padding:12,marginBottom:12,border:"1px solid #cc000033"}}>
-          <div style={{fontSize:10,color:"#cc0000",letterSpacing:1,marginBottom:8}}>{editWBSId?"▸ EDIT WBS":"▸ TAMBAH WBS ITEM"}</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
-            <div style={{gridColumn:"1/-1"}}><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>NAMA *</div><input style={{...inp,fontSize:11,padding:"5px 8px"}} value={wbsForm.name} onChange={e=>setWbsForm({...wbsForm,name:e.target.value})}/></div>
-            <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>PHASE</div>
-              <select style={{...inp,fontSize:11,padding:"5px 8px"}} value={wbsForm.phase} onChange={e=>setWbsForm({...wbsForm,phase:e.target.value})}>
-                {PHASES.map(ph=><option key={ph}>{ph}</option>)}
-              </select>
-            </div>
-            <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>LEVEL</div>
-              <select style={{...inp,fontSize:11,padding:"5px 8px"}} value={wbsForm.level} onChange={e=>setWbsForm({...wbsForm,level:+e.target.value})}>
-                <option value={1}>1 - Phase</option><option value={2}>2 - Deliverable</option><option value={3}>3 - Work Package</option>
-              </select>
-            </div>
-            <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>ASSIGNEE</div><input style={{...inp,fontSize:11,padding:"5px 8px"}} value={wbsForm.assignee} onChange={e=>setWbsForm({...wbsForm,assignee:e.target.value})}/></div>
-            <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>MULAI</div><input type="date" style={{...inp,fontSize:11,padding:"5px 8px"}} value={wbsForm.startDate} onChange={e=>setWbsForm({...wbsForm,startDate:e.target.value})}/></div>
-            <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>SELESAI</div><input type="date" style={{...inp,fontSize:11,padding:"5px 8px"}} value={wbsForm.endDate} onChange={e=>setWbsForm({...wbsForm,endDate:e.target.value})}/></div>
-            <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>BOBOT (%)</div><input type="number" min="0" max="100" style={{...inp,fontSize:11,padding:"5px 8px"}} value={wbsForm.weight} onChange={e=>setWbsForm({...wbsForm,weight:+e.target.value})}/></div>
-            <div style={{gridColumn:"1/-1"}}><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>DESKRIPSI</div><input style={{...inp,fontSize:11,padding:"5px 8px"}} value={wbsForm.description} onChange={e=>setWbsForm({...wbsForm,description:e.target.value})}/></div>
-          </div>
-          <div style={{display:"flex",gap:6}}>
-            <button onClick={saveWBS} style={{...btnSm("#10b981"),fontSize:10}}>Simpan</button>
-            <button onClick={()=>{setShowWBSForm(false);setEditWBSId(null);}} style={{...btnSm("#64748b"),fontSize:10}}>Batal</button>
-          </div>
-        </div>
-      )}
-
-      {/* WBS by Phase */}
-      {PHASES.map(ph=>{
-        const items = phaseGroups[ph]||[];
-        const phaseHasData = items.length>0;
-        return (
-          <div key={ph} style={{marginBottom:10,borderLeft:`2px solid ${phaseHasData?phaseColor[ph]:"#1e3a5f"}`,paddingLeft:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,cursor:"pointer"}} onClick={()=>setActivePhaseWBS(activePhaseWBS===ph?null:ph)}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:9,fontWeight:700,color:phaseHasData?phaseColor[ph]:"#334155",letterSpacing:1}}>{ph.toUpperCase()}</span>
-                {phaseHasData&&<span style={{fontSize:8,padding:"1px 6px",borderRadius:99,background:phaseColor[ph]+"22",color:phaseColor[ph],fontWeight:700}}>{items.length} item</span>}
-                {!phaseHasData&&<span style={{fontSize:8,color:"#1e3a5f",fontStyle:"italic"}}>belum ada data</span>}
-              </div>
-              <span style={{fontSize:9,color:"#334155"}}>{activePhaseWBS===ph?"▲":"▼"}</span>
-            </div>
-            {activePhaseWBS===ph&&items.map(w=>(
-              <div key={w.id} style={{marginBottom:8,background:"#0f274440",borderRadius:8,padding:"8px 10px",marginLeft:(w.level-1)*12}}>
-                <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
-                  <div style={{fontSize:8,color:"#475569",minWidth:16,paddingTop:2}}>{w.level}</div>
-                  <div style={{flex:1}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-                      <div>
-                        <div style={{fontSize:10,color:"#e2e8f0",fontWeight:700}}>{w.name}</div>
-                        {w.description&&<div style={{fontSize:8,color:"#475569",fontStyle:"italic"}}>{w.description}</div>}
-                        <div style={{fontSize:8,color:"#475569",marginTop:2}}>{w.assignee&&`${w.assignee} · `}{fmtDate(w.startDate)} → {fmtDate(w.endDate)} · Bobot {w.weight}%</div>
-                      </div>
-                      <div style={{display:"flex",gap:4,flexShrink:0}}>
-                        {canEdit&&<select style={{...inp,width:"auto",fontSize:9,padding:"2px 5px"}} value={w.status} onChange={e=>updateWBSField(w.id,"status",e.target.value)}>
-                          <option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
-                        </select>}
-                        <div style={{width:7,height:7,borderRadius:"50%",background:WSTATUS[w.status]||"#64748b",marginTop:2,flexShrink:0}}/>
-                        {canEdit&&<>
-                          <button onClick={()=>{setEditWBSId(w.id);setWbsForm({...w});setShowWBSForm(true);}} style={{background:"transparent",border:"none",color:"#38bdf8",cursor:"pointer",fontSize:10}}>✏</button>
-                          <button onClick={()=>deleteWBS(w.id)} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:10}}>✕</button>
-                        </>}
-                      </div>
-                    </div>
-                    {/* Progress bar */}
-                    <ProgressBar value={w.status==="done"?100:w.status==="in_progress"?50:0} color={WSTATUS[w.status]||"#64748b"} h={4}/>
-                    {/* Daily Logs */}
-                    <div style={{marginTop:8}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                        <div style={{fontSize:8,color:"#38bdf8",letterSpacing:1}}>LAPORAN HARIAN ({(w.dailyLogs||[]).length})</div>
-                        {canEdit&&<button onClick={()=>{setShowLogForm(showLogForm===w.id?null:w.id);setEditLogId(null);setLogForm({date:T,hours:8,description:"",reporter:"",manpowerIds:[],endDate:""}); }} style={{...btnSm("#10b981"),fontSize:8,padding:"2px 7px"}}>+ Log</button>}
-                      </div>
-                      {showLogForm===w.id&&canEdit&&(
-                        <div style={{background:"#0a162860",borderRadius:8,padding:10,marginBottom:8,border:"1px solid #10b98133"}}>
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
-                            <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>TANGGAL</div><input type="date" style={{...inp,fontSize:10,padding:"4px 7px"}} value={logForm.date} onChange={e=>setLogForm({...logForm,date:e.target.value})}/></div>
-                            <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>S/D TANGGAL (opsional)</div><input type="date" style={{...inp,fontSize:10,padding:"4px 7px"}} value={logForm.endDate} onChange={e=>setLogForm({...logForm,endDate:e.target.value})}/></div>
-                            <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>JAM KERJA</div><input type="number" min="0" max="24" style={{...inp,fontSize:10,padding:"4px 7px"}} value={logForm.hours} onChange={e=>setLogForm({...logForm,hours:+e.target.value})}/></div>
-                            <div><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>REPORTER</div><input style={{...inp,fontSize:10,padding:"4px 7px"}} value={logForm.reporter} onChange={e=>setLogForm({...logForm,reporter:e.target.value})} placeholder="Nama..."/></div>
-                            <div style={{gridColumn:"1/-1"}}><div style={{fontSize:8,color:"#64748b",marginBottom:2}}>KEGIATAN *</div><textarea style={{...inp,fontSize:10,padding:"4px 7px",minHeight:50,resize:"vertical"}} value={logForm.description} onChange={e=>setLogForm({...logForm,description:e.target.value})} placeholder="Deskripsi kegiatan hari ini..."/></div>
-                            {engineers&&<div style={{gridColumn:"1/-1"}}>
-                              <div style={{fontSize:8,color:"#64748b",marginBottom:2}}>MANPOWER TERLIBAT</div>
-                              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                                {(engineers||[]).slice(0,20).map(e=>(
-                                  <label key={e.id} style={{display:"flex",alignItems:"center",gap:3,fontSize:8,color:logForm.manpowerIds?.includes(e.id)?"#10b981":"#475569",cursor:"pointer",background:logForm.manpowerIds?.includes(e.id)?"#10b98122":"transparent",padding:"2px 5px",borderRadius:4,border:`1px solid ${logForm.manpowerIds?.includes(e.id)?"#10b981":"#1e3a5f"}`}}>
-                                    <input type="checkbox" style={{display:"none"}} checked={logForm.manpowerIds?.includes(e.id)||false} onChange={ev=>setLogForm({...logForm,manpowerIds:ev.target.checked?[...(logForm.manpowerIds||[]),e.id]:(logForm.manpowerIds||[]).filter(id=>id!==e.id)})}/>
-                                    {e.name.split(" ")[0]}
-                                  </label>
-                                ))}
-                              </div>
-                            </div>}
-                          </div>
-                          <div style={{display:"flex",gap:6}}>
-                            <button onClick={()=>saveLog(w.id)} style={{...btnSm("#10b981"),fontSize:9}}>Simpan</button>
-                            <button onClick={()=>{setShowLogForm(null);setEditLogId(null);}} style={{...btnSm("#64748b"),fontSize:9}}>Batal</button>
-                          </div>
-                          {logForm.endDate&&logForm.endDate>logForm.date&&<div style={{fontSize:8,color:"#f59e0b",marginTop:6}}>⚠ Akan membuat log dari {logForm.date} s/d {logForm.endDate}</div>}
-                        </div>
-                      )}
-                      {(w.dailyLogs||[]).length>0&&(
-                        <div style={{maxHeight:160,overflowY:"auto"}}>
-                          {[...(w.dailyLogs||[])].sort((a,b)=>b.date.localeCompare(a.date)).map(log=>(
-                            <div key={log.id} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"5px 8px",background:"#0a162840",borderRadius:5,marginBottom:3}}>
-                              <div style={{fontSize:8,color:"#38bdf8",fontWeight:700,minWidth:55,flexShrink:0}}>{log.date}</div>
-                              <div style={{flex:1}}>
-                                <div style={{fontSize:9,color:"#e2e8f0"}}>{log.description}</div>
-                                <div style={{fontSize:7,color:"#475569"}}>{log.hours}h{log.reporter&&` · ${log.reporter}`}{log.manpowerIds?.length>0&&` · ${log.manpowerIds.length} manpower`}</div>
-                              </div>
-                              {canEdit&&<>
-                                <button onClick={()=>{setEditLogId(log.id);setLogForm({...log,endDate:""});setShowLogForm(w.id);}} style={{background:"transparent",border:"none",color:"#38bdf8",cursor:"pointer",fontSize:9}}>✏</button>
-                                <button onClick={()=>deleteLog(w.id,log.id)} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:9}}>✕</button>
-                              </>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        );
-      })}
+      ))}
     </div>
   );
 }
@@ -1430,18 +1202,6 @@ function KPIProjectTab({ projects, engineers, card, inp, btn, btnSm, canEdit, sh
   );
 }
 
-const calcActualPhase = (proj) => {
-  const wbs = proj.wbsItems||[];
-  const phaseOrder = ["Planning","Production","Ready to Delivery","Installation","Commissioning","Completed"];
-  const phasesWithData = [...new Set(wbs.filter(w=>w.phase).map(w=>w.phase))];
-  let deepestIdx = phaseOrder.indexOf(proj.phase||"Planning");
-  phasesWithData.forEach(ph => {
-    const idx = phaseOrder.indexOf(ph);
-    if(idx > deepestIdx) deepestIdx = idx;
-  });
-  return phaseOrder[Math.max(0,deepestIdx)] || proj.phase || "Planning";
-};
-
 // ═══════════════════════════════════════════════════════════════
 // DASHBOARD TAB
 // ═══════════════════════════════════════════════════════════════
@@ -1474,29 +1234,14 @@ function DashboardTab({projects,engineers,completedProjects,setSelProject,setTab
       </div>
       <div style={{...card,marginBottom:16}}>
         <div style={{fontSize:11,color:"#cc0000",letterSpacing:3,marginBottom:14}}>▸ DISTRIBUSI PHASE PROYEK</div>
-        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
           {PHASES.map(ph=>{const cnt=projects.filter(p=>p.phase===ph).length;const pct=projects.length?Math.round(cnt/projects.length*100):0;return(
             <div key={ph} style={{flex:1,minWidth:80,background:(phaseColor[ph]||"#64748b")+"11",border:`1px solid ${(phaseColor[ph]||"#64748b")}33`,borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
               <div style={{fontSize:20,fontWeight:900,color:phaseColor[ph]||"#64748b"}}>{cnt}</div>
               <div style={{fontSize:8,color:phaseColor[ph]||"#64748b",fontWeight:700,letterSpacing:.5,marginTop:3}}>{ph}</div>
-              <div style={{fontSize:10,color:phaseColor[ph]||"#64748b",fontWeight:900,marginTop:4}}>{pct}%</div>
-              <div style={{marginTop:5,background:"#0f274460",borderRadius:99,height:4,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:phaseColor[ph]||"#64748b",borderRadius:99}}/></div>
-              <div style={{fontSize:7,color:"#475569",marginTop:2}}>{cnt} dari {projects.length}</div>
+              <div style={{fontSize:8,color:"#475569",marginTop:2}}>{pct}%</div>
             </div>
           );})}
-        </div>
-        {/* Status breakdown with % */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8}}>
-          {[["On Track","#10b981"],["At Risk","#f59e0b"],["Delayed","#ef4444"],["On Hold","#6b7280"]].map(([s,c])=>{
-            const cnt=projects.filter(p=>p.status===s).length;
-            const pct=projects.length?Math.round(cnt/projects.length*100):0;
-            return(
-              <div key={s} style={{background:c+"11",border:`1px solid ${c}33`,borderRadius:8,padding:"8px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div><div style={{fontSize:10,color:c,fontWeight:700}}>{s}</div><div style={{fontSize:8,color:"#475569"}}>{cnt} proyek</div></div>
-                <div style={{fontSize:20,fontWeight:900,color:c}}>{pct}%</div>
-              </div>
-            );
-          })}
         </div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
@@ -2192,7 +1937,7 @@ export default function App() {
         </div>
 
         <div style={{textAlign:"center",padding:"8px 0",fontSize:9,color:"#1e3a5f",borderTop:"1px solid #0d2137"}}>
-          PT. Frensiand Jaya Teknik · PMS v7.0 Enterprise · {projects.length} Active Projects · {engineers.length} Engineers
+          PT. Frensiand Jaya Teknik · PMS v6.0 Enterprise · {projects.length} Active Projects · {engineers.length} Engineers
         </div>
       </div>
     </div>
